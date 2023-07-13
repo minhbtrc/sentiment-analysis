@@ -12,7 +12,7 @@ from transformers.training_args import TrainingArguments, OptimizerNames
 from transformers.trainer_utils import IntervalStrategy
 
 from common.config import SentimentConfig
-from dataset.dataset import SentimentDataset
+from pipeline.dataset import SentimentDataset
 
 
 class SentimentTrainer:
