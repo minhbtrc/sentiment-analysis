@@ -1,0 +1,6 @@
+transformers
+py_vncorenlp
+torch
+evaluate
+onnx
+onnxruntime
