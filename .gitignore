@@ -5,3 +5,4 @@ __pycache__
 */*/__pycache__
 pipeline/output
 dataset
+.env
