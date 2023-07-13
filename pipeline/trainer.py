@@ -11,8 +11,9 @@ from transformers import RobertaForSequenceClassification, AutoTokenizer, Traine
 from transformers.training_args import TrainingArguments, OptimizerNames
 from transformers.trainer_utils import IntervalStrategy
 
-from common.config import SentimentConfig
+from common.config import SentimentConfig, ONNXOptions
 from pipeline.dataset import SentimentDataset
+from onnx_converter import ONNXConverter
 
 
 class SentimentTrainer:
@@ -138,27 +139,21 @@ class SentimentTrainer:
             _dummy_inputs = tuple(_dummy_inputs[i] for i in self.onnx_config.input_keys)
             return _dummy_inputs
 
-        def check_onnx_model():
-            model = onnx.load(self.config.onnx_path)
+        def check_onnx_model(path):
+            model = onnx.load(path)
             onnx.checker.check_model(model)
             self.logger.info(f"CHECK exported model to ONNX - DONE")
 
         if mode is None:
             mode = "best"
         checkpoint_path = self.get_best_checkpoint(mode=mode)
+        dummy_inputs = get_dummy_inputs(example_text="Tôi là một kỹ sư AI")
         onnx_model = RobertaForSequenceClassification.from_pretrained(checkpoint_path)
-        dummy_inputs = get_dummy_inputs("Tôi là một kỹ sư AI")
-        torch.onnx.export(
-            onnx_model,
-            dummy_inputs,
-            self.config.onnx_path,
-            verbose=True,
-            input_names=self.onnx_config.input_keys,
-            output_names=self.onnx_config.output_keys,
-            dynamic_axes=self.onnx_config.dynamic_axes
-        )
+        onnx_converter = ONNXConverter(tokenizer=self.tokenizer, model=onnx_model, config=self.config)
+        final_path = onnx_converter.convert(option=ONNXOptions.quantized_optimized_ONNX, dummy_inputs=dummy_inputs)
+
         self.logger.info(f"EXPORT {mode} model to ONNX - DONE")
-        check_onnx_model()
+        check_onnx_model(final_path)
 
     def train(self, export_last=False, export_mode: str = "last"):
         self.trainer.train()

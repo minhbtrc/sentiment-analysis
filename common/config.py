@@ -13,6 +13,16 @@ class SingletonClass(object):
         return cls.instance
 
 
+class ONNXOptions:
+    ONNX = "ONNX"
+    optimized_ONNX = "optimized_ONNX"
+    quantized_optimized_ONNX = "quantized_optimized_ONNX"
+
+    @classmethod
+    def keys(cls):
+        return [val for attr, val in cls.__dict__.items() if not attr.startswith("__") and isinstance(val, str)]
+
+
 class SentimentConfig:
     def __init__(
             self,
