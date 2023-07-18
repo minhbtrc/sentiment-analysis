@@ -13,7 +13,7 @@ from transformers.trainer_utils import IntervalStrategy
 
 from common.config import SentimentConfig, ONNXOptions
 from pipeline.dataset import SentimentDataset
-from onnx_converter import ONNXConverter
+from converter import ONNXConverter
 
 
 class SentimentTrainer:
@@ -132,10 +132,9 @@ class SentimentTrainer:
             break
         return best_checkpoint_until_now if best_checkpoint_until_now is not None else folder_checkpoint
 
-    def export_model_to_onnx(self, mode: str = None):
+    def export_model_to_onnx(self, mode: str = None, use_gpu: bool = False):
         def get_dummy_inputs(example_text):
-            _dummy_inputs = self.tokenizer(example_text, return_tensors="pt", padding="max_length", max_length=256,
-                                           truncation=True)
+            _dummy_inputs = self.tokenizer(example_text, return_tensors="pt", padding=True)
             _dummy_inputs = tuple(_dummy_inputs[i] for i in self.onnx_config.input_keys)
             return _dummy_inputs
 
@@ -149,8 +148,10 @@ class SentimentTrainer:
         checkpoint_path = self.get_best_checkpoint(mode=mode)
         dummy_inputs = get_dummy_inputs(example_text="Tôi là một kỹ sư AI")
         onnx_model = RobertaForSequenceClassification.from_pretrained(checkpoint_path)
-        onnx_converter = ONNXConverter(tokenizer=self.tokenizer, model=onnx_model, config=self.config)
-        final_path = onnx_converter.convert(option=ONNXOptions.quantized_optimized_ONNX, dummy_inputs=dummy_inputs)
+        onnx_converter = ONNXConverter(model=onnx_model, config=self.config)
+        final_path = onnx_converter.convert(option=ONNXOptions.quantized_optimized_ONNX,
+                                            dummy_inputs=dummy_inputs,
+                                            use_gpu=use_gpu)
 
         self.logger.info(f"EXPORT {mode} model to ONNX - DONE")
         check_onnx_model(final_path)
@@ -158,7 +159,8 @@ class SentimentTrainer:
     def train(self, export_last=False, export_mode: str = "last"):
         self.trainer.train()
         if export_last:
-            self.export_model_to_onnx(export_mode)
+            # Default when convert to onnx, use_gpu is based on training_device
+            self.export_model_to_onnx(export_mode, use_gpu=self.config.training_device)
 
     def eval(self):
         print(self.trainer.evaluate(eval_dataset=self.eval_dataset))
