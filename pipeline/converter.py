@@ -2,7 +2,7 @@ from typing import Tuple, Any
 import logging
 
 from common.config import SentimentConfig, ONNXOptions
-from pipeline.onnx_converter import ONNXRuntimeConverter, OptimumConverter
+from onnx_converter import ONNXRuntimeConverter, OptimumConverter
 
 CONVERTER = {
     "ONNXRUNTIME": ONNXRuntimeConverter,
@@ -14,7 +14,7 @@ class ONNXConverter:
     def __init__(self, model, mode, config: SentimentConfig = None):
         self.config = config if config is not None else SentimentConfig()
         self.model = model
-        self.logger = self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.onnx_func = CONVERTER[mode]
 
     @property

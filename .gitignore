@@ -4,5 +4,7 @@ __pycache__
 */__pycache__
 */*/__pycache__
 pipeline/output
+pipeline/checkpoint
+pipeline/dataset_manager/constants.py
 dataset
 .env
