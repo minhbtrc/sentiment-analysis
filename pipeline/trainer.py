@@ -6,28 +6,72 @@ import logging
 
 import regex as re
 from evaluate import load
-from transformers.trainer_utils import EvalPrediction
 from transformers import RobertaForSequenceClassification, AutoTokenizer, Trainer, SchedulerType
 from transformers.training_args import TrainingArguments, OptimizerNames
-from transformers.trainer_utils import IntervalStrategy
+from transformers.trainer_utils import IntervalStrategy, EvalPrediction
+from peft import (
+    LoraConfig,
+    get_peft_model,
+)
 
 from common.config import SentimentConfig, ONNXOptions
-from pipeline.dataset import SentimentDataset
+from pipeline.dataset_manager.dataset import SentimentDataset
+from models import (
+    SentimentModelWithLSTM,
+    SentimentModelWithLinear
+)
 from converter import ONNXConverter
+
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
+
+MODEL = {
+    "linear": SentimentModelWithLinear,
+    "lstm": SentimentModelWithLSTM
+}
 
 
 class SentimentTrainer:
-    def __init__(self, config: SentimentConfig = None):
+    def __init__(self, config: SentimentConfig = None, model_type: str = None):
         self.config = config if config is not None else SentimentConfig()
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.model = RobertaForSequenceClassification.from_pretrained(self.config.pretrained_path,
-                                                                      num_labels=self.config.model_num_labels)
-        self.model.to(self.config.training_device)
+        self.model = None
+        self.get_model(model_type)
+        if config.use_lora:
+            self.apply_lora()
         self.tokenizer = AutoTokenizer.from_pretrained(self.config.pretrained_path)
-        self.metrics = load("f1")
+        self.metrics = {
+            "precision": load("precision"),
+            "recall": load("recall"),
+            "f1": load("f1"),
+            "accuracy": load("accuracy")
+        }
         self.train_dataset, self.eval_dataset = self.load_dataset()
         self.trainer = None
         self.init_trainer()
+
+    def get_model(self, model_type: str = None):
+        self.model = MODEL.get(model_type, RobertaForSequenceClassification).from_pretrained(
+            self.config.pretrained_path,
+            num_labels=self.config.model_num_labels
+        )
+        self.model.use_cache = False
+        self.model.to(self.config.training_device)
+
+    def apply_lora(self):
+        # This target modules value base on name in base model definition
+        target_modules = ["query", "value"]
+        lora_config = LoraConfig(
+            r=self.config.lora_rank,
+            lora_alpha=self.config.lora_alpha,
+            target_modules=target_modules,
+            lora_dropout=self.config.lora_dropout,
+            bias="none",
+            task_type="SEQ_CLS",
+        )
+        self.model = get_peft_model(self.model, lora_config)
+        print("APPLY LORA DONE:", self.model.print_trainable_parameters())
 
     def load_dataset(self):
         train_dataset = SentimentDataset(config=self.config, mode="train", tokenizer=self.tokenizer)
@@ -44,10 +88,20 @@ class SentimentTrainer:
 
     def compute_metrics(self, eval_predictions: EvalPrediction):
         predictions, labels = eval_predictions
+        if isinstance(predictions, tuple):
+            predictions = predictions[0]
         predictions = torch.from_numpy(predictions).softmax(dim=-1).argmax(dim=-1)
-        result = self.metrics.compute(predictions=predictions, references=torch.from_numpy(labels).argmax(dim=-1),
-                                      average="weighted")
-        return result
+        labels = torch.from_numpy(labels).argmax(dim=-1)
+
+        output = {
+            "precision": self.metrics["precision"].compute(predictions=predictions, references=labels,
+                                                           average="weighted")["precision"],
+            "recall": self.metrics["recall"].compute(predictions=predictions, references=labels, average="weighted")[
+                "recall"],
+            "f1": self.metrics["f1"].compute(predictions=predictions, references=labels, average="weighted")["f1"],
+            "accuracy": self.metrics["accuracy"].compute(predictions=predictions, references=labels)["accuracy"]
+        }
+        return output
 
     def init_trainer(self):
         training_args = TrainingArguments(

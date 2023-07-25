@@ -5,3 +5,5 @@ evaluate
 onnx
 onnxruntime
 optimum
+scipy
+git+https://github.com/huggingface/peft.git

@@ -5,12 +5,12 @@ from common.common_keys import *
 
 
 class SingletonClass(object):
-    instance = None
+    _instances = {}
 
-    def __new__(cls):
-        if not hasattr(cls, 'instance'):
-            cls.instance = super(SingletonClass, cls).__new__(cls)
-        return cls.instance
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super(SingletonClass, cls).__call__(*args, **kwargs)
+        return cls._instances[cls]
 
 
 class ONNXOptions:
@@ -45,7 +45,12 @@ class SentimentConfig:
             training_metrics: str = None,
             segmentor_dir: str = None,
             model_input_max_length: int = None,
-            model_num_labels: int = None
+            model_num_labels: int = None,
+
+            use_lora: bool = None,
+            lora_dropout: float = None,
+            lora_alpha: float = None,
+            lora_rank: int = None
     ):
         self.pretrained_path = pretrained_path if pretrained_path is not None else os.getenv(PRETRAINED_PATH,
                                                                                              "vinai/phobert-base-v2")
@@ -71,6 +76,11 @@ class SentimentConfig:
         self.training_metrics = training_metrics if training_metrics is not None else "f1"
         self.model_input_max_length = model_input_max_length if model_input_max_length is not None else 256
         self.model_num_labels = model_num_labels if model_num_labels is not None else 3
+
+        self.use_lora = use_lora if use_lora is not None else bool(os.getenv(USE_LORA, ""))
+        self.lora_dropout = lora_dropout if lora_dropout is not None else float(os.getenv(LORA_DROPOUT, 0.05))
+        self.lora_alpha = lora_alpha if lora_alpha is not None else int(os.getenv(LORA_ALPHA, 16))
+        self.lora_rank = lora_rank if lora_rank is not None else int(os.getenv(LORA_RANK, 4))
 
         class PipelineConfig(SingletonClass):
             def __init__(self):

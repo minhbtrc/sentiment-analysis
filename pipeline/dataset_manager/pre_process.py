@@ -2,11 +2,11 @@ import regex as re
 import string
 import json
 
-from common.constants import *
+from pipeline.dataset_manager.constants import COMMON_MAPPING_PATH
 
 
 class Cleaner:
-    def __init__(self, label_mapping):
+    def __init__(self):
         self.common_mapping = json.load(open(COMMON_MAPPING_PATH, "r", encoding="utf8"))
 
         self.emoji_pattern = re.compile("["
@@ -38,15 +38,16 @@ class Cleaner:
         text = re.sub(r"(\w)\s*([" + string.punctuation + "])\s*(\w)", r"\1 \2 \3", text)
         text = re.sub(r"(\w)\s*([" + string.punctuation + "])", r"\1 \2", text)
         # 99abcd => 99 abc
-        text = re.sub(r"(\d)([^\d.])", r"\1 \2", text)
-        text = re.sub(r"([^\d.])(\d)", r"\1 \2", text)
+        # text = re.sub(r"(\d)([^\d.])", r"\1 \2", text)
+        # text = re.sub(r"([^\d.])(\d)", r"\1 \2", text)
         # Remove duplicate punctuations
         text = re.sub(f"([{string.punctuation}])([{string.punctuation}])+", r"\1", text)
         # Mapping usual wrong word to formal word
         text = " ".join([self.common_mapping.get(word, word) for word in text.split()])
+        while text.endswith(tuple(string.punctuation + string.whitespace)):
+            text = text[:-1]
+        while text.startswith(tuple(string.punctuation + string.whitespace)):
+            text = text[1:]
         text = re.sub(r"\s+", " ", text)
         text = text.strip()
         return text
-
-    def process(self, text):
-        pass
