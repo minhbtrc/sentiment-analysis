@@ -1,8 +1,10 @@
+import onnx
 from typing import Tuple, Any
-import logging
 
 from common.config import SentimentConfig, ONNXOptions
-from onnx_converter import ONNXRuntimeConverter, OptimumConverter
+from common.base import BaseModel
+from pipeline.onnx_manager import ONNXRuntimeConverter, OptimumConverter
+from pipeline.model_manager.model import SentimentModel
 
 CONVERTER = {
     "ONNXRUNTIME": ONNXRuntimeConverter,
@@ -10,41 +12,31 @@ CONVERTER = {
 }
 
 
-class ONNXConverter:
-    def __init__(self, model, mode, config: SentimentConfig = None):
-        self.config = config if config is not None else SentimentConfig()
+class ONNXConverter(BaseModel):
+    def __init__(self, model: SentimentModel, mode: str, config: SentimentConfig = None):
+        super(ONNXConverter, self).__init__(config=config)
         self.model = model
-        self.logger = logging.getLogger(self.__class__.__name__)
-        self.onnx_func = CONVERTER[mode]
+        self.onnx_func = CONVERTER.get(mode, ONNXRuntimeConverter)
 
     @property
     def onnx_config(self):
-        class OnnxConfig:
-            input_keys = ["input_ids", "attention_mask"]
-            output_keys = ["logits"]
-            dynamic_axes = {
-                "input_ids": {
-                    0: "batch_size",
-                    1: "hidden_dim"
-                },
-                "attention_mask": {
-                    0: "batch_size",
-                    1: "hidden_dim"
-                }
-            }
-
-        return OnnxConfig
+        return self.model.onnx_config
 
     @staticmethod
     def __valid_options(option: str):
         if option not in ONNXOptions.keys():
             raise "ONNX option must be in `ONNXOptions`"
 
+    def check_onnx_model(self, path):
+        model = onnx.load(path)
+        onnx.checker.check_model(model)
+        self.logger.info(f"CHECK exported model to ONNX - DONE")
+
     def convert(self, option: str = None, dummy_inputs: Tuple[Any] = None, use_gpu: bool = False):
         self.__valid_options(option)
 
         converter = self.onnx_func(
-            model=self.model,
+            model=self.model.model,
             dummy_inputs=dummy_inputs,
             input_names=self.onnx_config.input_keys,
             output_names=self.onnx_config.output_keys,

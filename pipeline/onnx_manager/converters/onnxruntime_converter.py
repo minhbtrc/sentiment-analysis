@@ -3,7 +3,7 @@ from pathlib import Path
 from onnxruntime.quantization import quantize_dynamic, QuantType
 from onnxruntime.transformers.optimizer import optimize_model
 
-from base_converter import BaseConverter
+from pipeline.onnx_manager.converters.base_converter import BaseConverter
 
 
 class ONNXRuntimeConverter(BaseConverter):

@@ -29,8 +29,6 @@ class BaseConverter:
     def mapping_func(self):
         return {
             "ONNX": self.onnx_only,
-            "optimized_ONNX": self.compose(self.onnx_only, self.apply_optimized),
-            "quantized_ONNX": self.compose(self.onnx_only, self.apply_quantized),
             "quantized_optimized_ONNX": self.compose(
                 self.onnx_only, self.apply_optimized, self.apply_quantized)
         }

@@ -1,7 +1,8 @@
+import os
 import json
 import torch
 from collections import Counter
-from itertools import chain
+import random
 from torch.utils.data import Dataset
 
 
@@ -10,9 +11,29 @@ class SentimentDataset(Dataset):
         super().__init__()
         self.config = config
         self.tokenizer = tokenizer
-        self.data = self.load_dataset(path=f"{self.config.dataset_path}/{mode}.json")
+        dataset = []
+        for ff in os.listdir(self.config.dataset_path):
+            for f in os.listdir(f"{self.config.dataset_path}/{ff}"):
+                if f.endswith(".json") and f.startswith(mode):
+                    dataset += self.load_dataset(path=f"{self.config.dataset_path}/{ff}/{f}")
+        random.shuffle(dataset)
+        self.data = dataset
+        if mode == "eval":
+            self.data = self.data[:5000]
         print(Counter([e[1] for e in self.data]))
         print(f"Load {len(self.data)} examples for {mode} dataset")
+        self.mapping_label = {
+            0: "positive",
+            1: "negative",
+            2: "neutral"
+        }
+
+    @staticmethod
+    def generate_prompt(sentence):
+        return f"""Classify the sentiment of the following Vietnamese sentence into one of three classes: neutral, negative, positive.\n### Input: {sentence}"""
+
+    def generate_label(self, label_id):
+        return self.mapping_label[label_id]
 
     @staticmethod
     def load_dataset(path: str):
@@ -23,12 +44,10 @@ class SentimentDataset(Dataset):
         data_item = self.data[idx]
         labels = torch.zeros(self.config.model_num_labels)
         labels[data_item[-1]] = 1
-        segmented_text = " ".join(
-            chain.from_iterable(self.config.config.segmentor.word_segment(data_item[0].replace("_", " "))))
-        tokenized_text = self.tokenizer(segmented_text, padding="max_length", truncation=True,
-                                        max_length=self.config.model_input_max_length, return_tensors="pt")
+        text = data_item[0].lower().replace("_", " ")
+        segmented_text = self.generate_prompt(text)
         return {
-            **tokenized_text,
+            "input_ids": segmented_text,
             "labels": labels
         }
 
