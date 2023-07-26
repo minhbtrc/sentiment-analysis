@@ -1,9 +1,9 @@
-## Sentiment Analysis using PhoBert+Linear
+## Finetune pretrained model for Sentiment analysis
 
 ### Model Architecture
 - Try some pretrained model:
-  - RobertaForSequenceClassification: `vinai/phobert-base-v2`
-  - BloomForSequenceClassification: `bigscience/bloom-560m`
+  - [PhoBERT](https://github.com/VinAIResearch/PhoBERT): `vinai/phobert-base-v2`
+  - [Bloom](https://huggingface.co/docs/transformers/model_doc/bloom): `bigscience/bloom-560m`
 - Architecture: XXXXForSequenceClassification
 - Use Trainer of Huggingface to training model
 
@@ -19,4 +19,5 @@
 - See: pipeline/onnx_converter.py
 
 ### How to run
-`PRETRAINED_PATH=bigscience/bloom-560m CUDA_VISIBLE_DEVICES=1,2 python -m torch.distributed.launch --nproc_per_node 2 --master-port=30000 pipeline/trainer.py`
+1. Export environment variables: `while read LINE; do export "$LINE"; done < .env`
+2. Run training: `PRETRAINED_PATH=bigscience/bloom-560m CUDA_VISIBLE_DEVICES=1,2 python -m torch.distributed.launch --nproc_per_node 2 --master-port=30000 pipeline/trainer.py`
