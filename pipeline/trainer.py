@@ -1,77 +1,35 @@
 import torch
-import onnx
 import os
 import json
-import logging
 
 import regex as re
 from evaluate import load
-from transformers import RobertaForSequenceClassification, AutoTokenizer, Trainer, SchedulerType
+from transformers import AutoTokenizer, Trainer, SchedulerType
 from transformers.training_args import TrainingArguments, OptimizerNames
 from transformers.trainer_utils import IntervalStrategy, EvalPrediction
-from peft import (
-    LoraConfig,
-    get_peft_model,
-)
 
 from common.config import SentimentConfig, ONNXOptions
+from common.base import BaseModel
 from pipeline.dataset_manager.dataset import SentimentDataset
-from models import (
-    SentimentModelWithLSTM,
-    SentimentModelWithLinear
-)
-from converter import ONNXConverter
+from pipeline.model_manager.model import SentimentModel
+from pipeline.onnx_manager.converter import ONNXConverter
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1,2"
 os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
 
-MODEL = {
-    "linear": SentimentModelWithLinear,
-    "lstm": SentimentModelWithLSTM
-}
 
+class SentimentProcessor(BaseModel):
+    def __init__(self, config: SentimentConfig = None, model_class: str = None):
+        super(SentimentProcessor, self).__init__(config=config)
 
-class SentimentTrainer:
-    def __init__(self, config: SentimentConfig = None, model_type: str = None):
-        self.config = config if config is not None else SentimentConfig()
-        self.logger = logging.getLogger(self.__class__.__name__)
-        self.model = None
-        self.get_model(model_type)
-        if config.use_lora:
-            self.apply_lora()
-        self.tokenizer = AutoTokenizer.from_pretrained(self.config.pretrained_path)
-        self.metrics = {
-            "precision": load("precision"),
-            "recall": load("recall"),
-            "f1": load("f1"),
-            "accuracy": load("accuracy")
-        }
-        self.train_dataset, self.eval_dataset = self.load_dataset()
+        self.converter = None
+        self.model = SentimentModel(config=self.config, model_class=model_class)
+        self.tokenizer = None
+        self.metrics = None
         self.trainer = None
-        self.init_trainer()
-
-    def get_model(self, model_type: str = None):
-        self.model = MODEL.get(model_type, RobertaForSequenceClassification).from_pretrained(
-            self.config.pretrained_path,
-            num_labels=self.config.model_num_labels
-        )
-        self.model.use_cache = False
-        self.model.to(self.config.training_device)
-
-    def apply_lora(self):
-        # This target modules value base on name in base model definition
-        target_modules = ["query", "value"]
-        lora_config = LoraConfig(
-            r=self.config.lora_rank,
-            lora_alpha=self.config.lora_alpha,
-            target_modules=target_modules,
-            lora_dropout=self.config.lora_dropout,
-            bias="none",
-            task_type="SEQ_CLS",
-        )
-        self.model = get_peft_model(self.model, lora_config)
-        print("APPLY LORA DONE:", self.model.print_trainable_parameters())
+        self.train_dataset = None
+        self.eval_dataset = None
 
     def load_dataset(self):
         train_dataset = SentimentDataset(config=self.config, mode="train", tokenizer=self.tokenizer)
@@ -86,6 +44,13 @@ class SentimentTrainer:
 
         return batch
 
+    def dynamic_collator(self, data):
+        batch_items = [item["input_ids"] for item in data]
+        batch = self.tokenizer(batch_items, padding=True, max_length=self.config.model_input_max_length,
+                               truncation=True, return_tensors="pt").to(self.config.training_device)
+        batch["labels"] = torch.vstack([ele["labels"] for ele in data]).to(self.config.training_device)
+        return batch
+
     def compute_metrics(self, eval_predictions: EvalPrediction):
         predictions, labels = eval_predictions
         if isinstance(predictions, tuple):
@@ -94,14 +59,32 @@ class SentimentTrainer:
         labels = torch.from_numpy(labels).argmax(dim=-1)
 
         output = {
-            "precision": self.metrics["precision"].compute(predictions=predictions, references=labels,
+            "precision": self.metrics["precision"].compute(predictions=predictions,
+                                                           references=labels,
                                                            average="weighted")["precision"],
-            "recall": self.metrics["recall"].compute(predictions=predictions, references=labels, average="weighted")[
-                "recall"],
-            "f1": self.metrics["f1"].compute(predictions=predictions, references=labels, average="weighted")["f1"],
-            "accuracy": self.metrics["accuracy"].compute(predictions=predictions, references=labels)["accuracy"]
+            "recall": self.metrics["recall"].compute(predictions=predictions,
+                                                     references=labels,
+                                                     average="weighted")["recall"],
+            "f1": self.metrics["f1"].compute(predictions=predictions,
+                                             references=labels,
+                                             average="weighted")["f1"],
+            "accuracy": self.metrics["accuracy"].compute(predictions=predictions,
+                                                         references=labels)["accuracy"]
         }
         return output
+
+    def init(self, use_lora: bool = False):
+        self.metrics = {
+            "precision": load("precision"),
+            "recall": load("recall"),
+            "f1": load("f1"),
+            "accuracy": load("accuracy")
+        }
+        self.model.init(use_lora=use_lora)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.config.pretrained_path)
+        self.converter = ONNXConverter(model=self.model, mode="ONNXRUNTIME", config=self.config)
+        self.train_dataset, self.eval_dataset = self.load_dataset()
+        self.init_trainer()
 
     def init_trainer(self):
         training_args = TrainingArguments(
@@ -132,40 +115,20 @@ class SentimentTrainer:
             dataloader_pin_memory=False
         )
         self.trainer = Trainer(
-            model=self.model,
+            model=self.model.model,
             args=training_args,
             train_dataset=self.train_dataset,
             eval_dataset=self.eval_dataset,
             tokenizer=self.tokenizer,
-            data_collator=self.collator,
+            data_collator=self.dynamic_collator,
             compute_metrics=self.compute_metrics
         )
 
     @property
-    def onnx_config(self):
-        class OnnxConfig:
-            input_keys = ["input_ids", "attention_mask"]
-            output_keys = ["logits"]
-            dynamic_axes = {
-                "input_ids": {
-                    0: "batch_size",
-                    1: "hidden_dim"
-                },
-                "attention_mask": {
-                    0: "batch_size",
-                    1: "hidden_dim"
-                }
-            }
-
-        return OnnxConfig
-
-    def get_best_checkpoint(self, mode: str = "best"):
+    def best_checkpoint(self):
         _re_checkpoint = re.compile(r"^checkpoint\-(\d+)$")
         folder_checkpoint = self.config.training_output_dir
         best_checkpoint_until_now = ""
-
-        if mode not in ["best", "last"]:
-            self.logger.error(f'>>>`checkpoint_type` must be in ["best", "last"], not {mode}<<<')
 
         if _re_checkpoint.search(folder_checkpoint.split("/")[-1]):
             return folder_checkpoint
@@ -175,8 +138,7 @@ class SentimentTrainer:
             if len(checkpoints) == 0:
                 return folder_checkpoint
             last_checkpoint = max(checkpoints, key=lambda x: int(x.split("-")[-1]))
-            if mode == "last":
-                return os.path.join(folder_checkpoint, last_checkpoint)
+
             state_of_last_checkpoint = os.path.join(folder_checkpoint, last_checkpoint) + "/trainer_state.json"
             if not os.path.isfile(state_of_last_checkpoint):
                 checkpoints.remove(last_checkpoint)
@@ -186,29 +148,18 @@ class SentimentTrainer:
             break
         return best_checkpoint_until_now if best_checkpoint_until_now is not None else folder_checkpoint
 
-    def export_model_to_onnx(self, mode: str = None, use_gpu: bool = False):
-        def get_dummy_inputs(example_text):
+    def export_model_to_onnx(self, checkpoint_path: str = None, use_gpu: bool = False):
+        def _get_dummy_inputs(example_text):
             _dummy_inputs = self.tokenizer(example_text, return_tensors="pt", padding=True)
-            _dummy_inputs = tuple(_dummy_inputs[i] for i in self.onnx_config.input_keys)
+            _dummy_inputs = self.model.get_dummy_inputs(_dummy_inputs)
             return _dummy_inputs
 
-        def check_onnx_model(path):
-            model = onnx.load(path)
-            onnx.checker.check_model(model)
-            self.logger.info(f"CHECK exported model to ONNX - DONE")
+        dummy_inputs = _get_dummy_inputs(example_text="Tôi là một kỹ_sư AI")
+        ckpt_path = checkpoint_path if checkpoint_path is not None else self.best_checkpoint
+        self.model.load_pretrained(ckpt_path)
+        self.converter.convert(option=ONNXOptions.quantized_optimized_ONNX, dummy_inputs=dummy_inputs, use_gpu=use_gpu)
 
-        if mode is None:
-            mode = "best"
-        checkpoint_path = self.get_best_checkpoint(mode=mode)
-        dummy_inputs = get_dummy_inputs(example_text="Tôi là một kỹ sư AI")
-        onnx_model = RobertaForSequenceClassification.from_pretrained(checkpoint_path)
-        onnx_converter = ONNXConverter(model=onnx_model, config=self.config)
-        final_path = onnx_converter.convert(option=ONNXOptions.quantized_optimized_ONNX,
-                                            dummy_inputs=dummy_inputs,
-                                            use_gpu=use_gpu)
-
-        self.logger.info(f"EXPORT {mode} model to ONNX - DONE")
-        check_onnx_model(final_path)
+        self.logger.info(f"EXPORT model to ONNX - DONE")
 
     def train(self, export_last=False, export_mode: str = "last"):
         self.trainer.train()
@@ -217,9 +168,16 @@ class SentimentTrainer:
             self.export_model_to_onnx(export_mode, use_gpu=self.config.training_device)
 
     def eval(self):
-        print(self.trainer.evaluate(eval_dataset=self.eval_dataset))
+        self.logger.info(self.trainer.evaluate(eval_dataset=self.eval_dataset))
+
+    def load_trained_model(self, checkpoint_path: str, adapter_path: str):
+        self.model.load_pretrained(checkpoint_path)
+        self.tokenizer = AutoTokenizer.from_pretrained(checkpoint_path)
+        if self.model.use_lora:
+            self.model.load_lora_adapter(adapter_path=adapter_path)
 
 
 if __name__ == "__main__":
-    trainer = SentimentTrainer()
+    trainer = SentimentProcessor(model_class="bloom")
+    trainer.init(use_lora=True)
     trainer.train()

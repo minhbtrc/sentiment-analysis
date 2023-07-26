@@ -102,3 +102,21 @@ class SentimentModelWithLSTM(RobertaForSequenceClassification):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
+
+    @property
+    def onnx_config(self):
+        class OnnxConfig:
+            input_keys = ["input_ids", "attention_mask"]
+            output_keys = ["logits"]
+            dynamic_axes = {
+                "input_ids": {
+                    0: "batch_size",
+                    1: "hidden_dim"
+                },
+                "attention_mask": {
+                    0: "batch_size",
+                    1: "hidden_dim"
+                }
+            }
+
+        return OnnxConfig

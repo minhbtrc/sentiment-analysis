@@ -6,4 +6,5 @@ onnx
 onnxruntime
 optimum
 scipy
+scikit-learn
 git+https://github.com/huggingface/peft.git

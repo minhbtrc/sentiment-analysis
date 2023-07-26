@@ -1,10 +1,4 @@
-from optimum.onnxruntime import (
-    AutoQuantizationConfig,
-    ORTModelForSequenceClassification,
-    ORTQuantizer
-)
-
-from base_converter import BaseConverter
+from pipeline.onnx_manager.converters.base_converter import BaseConverter
 
 
 class OptimumConverter(BaseConverter):
