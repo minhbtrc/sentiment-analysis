@@ -35,8 +35,8 @@ class Cleaner:
         # Remove duplicate characters. shopppp -> shop
         text = re.sub(r'([a-z]+?)\1+', r'\1', text)
         # cam on shop.tam biet ==> cam on shop . tam biet
-        text = re.sub(r"(\w)\s*([" + string.punctuation + "])\s*(\w)", r"\1 \2 \3", text)
-        text = re.sub(r"(\w)\s*([" + string.punctuation + "])", r"\1 \2", text)
+        # text = re.sub(r"(\w)\s*([" + string.punctuation + "])\s*(\w)", r"\1 \2 \3", text)
+        # text = re.sub(r"(\w)\s*([" + string.punctuation + "])", r"\1 \2", text)
         # 99abcd => 99 abc
         # text = re.sub(r"(\d)([^\d.])", r"\1 \2", text)
         # text = re.sub(r"([^\d.])(\d)", r"\1 \2", text)

@@ -25,18 +25,38 @@ MODEL = {
 class SentimentModel(BaseModel):
     def __init__(self, config: SentimentConfig = None):
         super(SentimentModel, self).__init__(config=config)
-        self.model_class = None
+        self._model_class = None
         self.model = None
-        self.use_lora = None
+        self._use_lora = None
+
+    @property
+    def use_lora(self):
+        return self._use_lora
+
+    @use_lora.setter
+    def use_lora(self, _use: bool):
+        self._use_lora = _use
+
+    @property
+    def model_class(self):
+        return MODEL[self._model_class]
+
+    @property
+    def model_class_str(self):
+        return self._model_class
+
+    @model_class.setter
+    def model_class(self, _model_class: str = None):
+        if _model_class is not None:
+            self._model_class = _model_class
 
     def load_pretrained(self, checkpoint_path):
-        self.model = MODEL.get(self.model_class, RobertaForSequenceClassification).from_pretrained(checkpoint_path)
+        self.model = self.model_class.from_pretrained(checkpoint_path, num_labels=self.config.model_num_labels)
 
     def init(self, use_lora: bool = False, model_class: str = None):
         self.model_class = model_class
-        model_class = MODEL.get(self.model_class, RobertaForSequenceClassification)
-        self.logger.info(f"Loading model from {model_class} checkpoint")
-        self.model = model_class.from_pretrained(
+        self.logger.info(f"Loading model from {self.model_class}-{self.config.pretrained_path} checkpoint")
+        self.model = self.model_class.from_pretrained(
             self.config.pretrained_path,
             num_labels=self.config.model_num_labels
         )
@@ -48,20 +68,21 @@ class SentimentModel(BaseModel):
 
     def apply_lora(self):
         # This target modules value base on name in base model definition
-        target_modules = LORA_TARGET_MODULES.get(self.model_class.split("_")[0], [])
+        target_modules = LORA_TARGET_MODULES.get(self.model_class_str.split("_")[0], [])
         lora_config = LoraConfig(
             r=self.config.lora_rank,
             lora_alpha=self.config.lora_alpha,
             target_modules=target_modules,
             lora_dropout=self.config.lora_dropout,
             bias="none",
-            task_type=LORA_TASK_TYPE.get(self.model_class.split("_")[0], ""),
+            task_type=LORA_TASK_TYPE.get(self.model_class_str.split("_")[0], ""),
         )
         self.model = get_peft_model(self.model, lora_config)
         self.model.print_trainable_parameters()
         self.logger.info("============APPLY LORA DONE==============")
 
     def load_lora_adapter(self, adapter_path, adapter_name: str = "default"):
+        self.logger.info(f"==============LOADING_LORA_ADAPTER==============")
         if not self.use_lora:
             self.logger.warn("Model is not trained with lora")
         self.model.load_adapter(model_id=adapter_path, adapter_name=adapter_name)

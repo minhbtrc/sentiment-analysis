@@ -1,5 +1,7 @@
 import os
 import json
+from itertools import chain
+
 import torch
 from collections import Counter
 import random
@@ -13,6 +15,8 @@ class SentimentDataset(Dataset):
         self.tokenizer = tokenizer
         dataset = []
         for ff in os.listdir(self.config.dataset_path):
+            if not os.path.isdir(f"{self.config.dataset_path}/{ff}"):
+                continue
             for f in os.listdir(f"{self.config.dataset_path}/{ff}"):
                 if f.endswith(".json") and f.startswith(mode):
                     dataset += self.load_dataset(path=f"{self.config.dataset_path}/{ff}/{f}")
@@ -40,14 +44,25 @@ class SentimentDataset(Dataset):
         data = json.load(open(path, "r", encoding="utf8"))
         return data["data"]
 
-    def __getitem__(self, idx):
+    def new__getitem__(self, idx):
         data_item = self.data[idx]
         labels = torch.zeros(self.config.model_num_labels)
         labels[data_item[-1]] = 1
         text = data_item[0].lower().replace("_", " ")
-        segmented_text = self.generate_prompt(text)
+        segmented_text = self.generate_prompt(text, self.generate_label(data_item[-1]))
         return {
             "input_ids": segmented_text,
+            "labels": labels
+        }
+
+    def __getitem__(self, idx):
+        data_item = self.data[idx]
+        labels = torch.zeros(self.config.model_num_labels)
+        labels[data_item[-1]] = 1
+        tokenized_text = self.tokenizer(data_item[0], padding="max_length", truncation=True,
+                                        max_length=self.config.model_input_max_length, return_tensors="pt")
+        return {
+            **tokenized_text,
             "labels": labels
         }
 

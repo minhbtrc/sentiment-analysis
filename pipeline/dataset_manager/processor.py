@@ -82,22 +82,22 @@ class DatasetProcessor:
         self.load_raw_dataset()
 
     def load_raw_dataset(self):
-        dataset = set()
+        dataset = []
         all_files = os.listdir(self.config.dataset_path)
         for f in all_files:
             if not f.endswith(".json"):
                 continue
-            dataset.update(json.load(open(f"{self.config.dataset_path}/{f}", "r", encoding="utf8"))["data"])
-        self.raw_dataset = [self.cleaner.text_process(message) for message in dataset]
+            dataset += json.load(open(f"{self.config.dataset_path}/{f}", "r", encoding="utf8"))["data"]
+        self.raw_dataset = [[self.cleaner.text_process(message[0]), message[1]] for message in dataset]
         self.logger.info(f"Loaded {len(self.raw_dataset)} raw messages")
 
     def process(self):
         output = []
         for sent in tqdm(self.raw_dataset):
-            label = self.labeler.label(sent)
+            label = self.labeler.label(sent[0])
             processed_text = label["text"][0]
-            label = label["sentiment"][0]["tag"] if label["sentiment"][0]["score"] > 0.98 else "XXXXXX"
-            output.append([processed_text, SentimentId2Tag.get_id(label)])
+            label = label["output"][0]["tag"] if label["output"][0]["score"] > 0.98 else "XXXXXX"
+            output.append([processed_text, sent[1], SentimentId2Tag.get_id(label), bool(sent[1]==SentimentId2Tag.get_id(label))])
 
         output_path = self.config.dataset_path.replace("raw", "processed")
         json.dump({"data": output}, open(f"{output_path}/processed_data.json", "w", encoding="utf8"), indent=4,

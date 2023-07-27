@@ -23,8 +23,9 @@ class SentimentProcessor(BaseModel):
     def __init__(self, config: SentimentConfig = None, model_class: str = None):
         super(SentimentProcessor, self).__init__(config=config)
 
-        self.converter = None
-        self.model = SentimentModel(config=self.config, model_class=model_class)
+        self.converter = ONNXConverter(mode="ONNXRUNTIME", config=self.config)
+        self.model = SentimentModel(config=self.config)
+        self.model.model_class = model_class
         self.tokenizer = None
         self.metrics = None
         self.trainer = None
@@ -82,7 +83,6 @@ class SentimentProcessor(BaseModel):
         }
         self.model.init(use_lora=use_lora)
         self.tokenizer = AutoTokenizer.from_pretrained(self.config.pretrained_path)
-        self.converter = ONNXConverter(mode="ONNXRUNTIME", config=self.config)
         self.train_dataset, self.eval_dataset = self.load_dataset()
         self.init_trainer()
 
@@ -154,9 +154,9 @@ class SentimentProcessor(BaseModel):
             _dummy_inputs = self.model.get_dummy_inputs(_dummy_inputs)
             return _dummy_inputs
 
-        dummy_inputs = _get_dummy_inputs(example_text="Tôi là một kỹ_sư AI")
         ckpt_path = checkpoint_path if checkpoint_path is not None else self.best_checkpoint
         self.load_trained_model(checkpoint_path=ckpt_path, adapter_path=adapter_path)
+        dummy_inputs = _get_dummy_inputs(example_text="Tôi là một kỹ_sư AI")
         self.converter.add_model(model=self.model)
         self.converter.convert(option=ONNXOptions.quantized_optimized_ONNX, dummy_inputs=dummy_inputs, use_gpu=use_gpu)
 
@@ -171,9 +171,10 @@ class SentimentProcessor(BaseModel):
     def eval(self):
         self.logger.info(self.trainer.evaluate(eval_dataset=self.eval_dataset))
 
-    def load_trained_model(self, checkpoint_path: str = None, adapter_path: str = None):
+    def load_trained_model(self, checkpoint_path: str = None, use_lora: bool = None, adapter_path: str = None):
         self.model.load_pretrained(checkpoint_path)
         self.tokenizer = AutoTokenizer.from_pretrained(checkpoint_path)
+        self.model.use_lora = use_lora
         if self.model.use_lora and adapter_path is not None:
             self.model.load_lora_adapter(adapter_path=adapter_path)
 
@@ -181,5 +182,6 @@ class SentimentProcessor(BaseModel):
 if __name__ == "__main__":
     trainer = SentimentProcessor(model_class="bloom")
     trainer.init(use_lora=True)
-    # trainer.train()
-    trainer.export_model_to_onnx(checkpoint_path=trainer.config.pretrained_path, adapter_path=f"{trainer.config.training_output_dir}/checkpoint-8000")
+    trainer.train()
+    # trainer.export_model_to_onnx(checkpoint_path=trainer.config.pretrained_path,
+    #                              adapter_path=f"{trainer.config.training_output_dir}/checkpoint-8000")
