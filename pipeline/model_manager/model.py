@@ -23,19 +23,20 @@ MODEL = {
 
 
 class SentimentModel(BaseModel):
-    def __init__(self, config: SentimentConfig = None, model_class: str = None):
+    def __init__(self, config: SentimentConfig = None):
         super(SentimentModel, self).__init__(config=config)
-        self.model_class = model_class
+        self.model_class = None
         self.model = None
         self.use_lora = None
 
     def load_pretrained(self, checkpoint_path):
-        self.model = self.model_class.from_pretrained(checkpoint_path)
+        self.model = MODEL.get(self.model_class, RobertaForSequenceClassification).from_pretrained(checkpoint_path)
 
-    def init(self, use_lora: bool = False):
-        self.model_class = MODEL.get(self.model_class, RobertaForSequenceClassification)
-        self.logger.info(f"Loading model from {self.model_class} checkpoint")
-        self.model = self.model_class.from_pretrained(
+    def init(self, use_lora: bool = False, model_class: str = None):
+        self.model_class = model_class
+        model_class = MODEL.get(self.model_class, RobertaForSequenceClassification)
+        self.logger.info(f"Loading model from {model_class} checkpoint")
+        self.model = model_class.from_pretrained(
             self.config.pretrained_path,
             num_labels=self.config.model_num_labels
         )
