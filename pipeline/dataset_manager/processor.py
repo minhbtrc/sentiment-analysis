@@ -21,7 +21,7 @@ class Labeler:
         return "Classify the following Vietnamese sentence into one of three labels positive, " \
                "negative and neutral for sentiment analysis problem, please return only label. " \
                "Example: sentence: \"mẫu này mặc nóng ko shop?\" is neutral.\n " \
-               "sentence: \"Dạ không, em hỏi sản phẩm mã DC12009 ạ\" is neutral.\n " \
+               "sentence: \"Dạ không, em hỏi sản phẩm mã XXXX ạ\" is neutral.\n " \
                "sentence: \"shop rep mình lâu thế, mình không mua nữa, làm ăn kì cục\" is negative.\n " \
                "sentence: \"cảm ơn shop nhé, shop tư vấn nhiệt tình, sản phẩm đẹp nữa\" is positive. \n " \
                f"\"{sentence}\""
@@ -97,8 +97,8 @@ class DatasetProcessor:
             label = self.labeler.label(sent[0])
             processed_text = label["text"][0]
             label = label["output"][0]["tag"] if label["output"][0]["score"] > 0.98 else "XXXXXX"
-            output.append([processed_text, sent[1], SentimentId2Tag.get_id(label), bool(sent[1]==SentimentId2Tag.get_id(label))])
-
+            output.append([processed_text, sent[1], SentimentId2Tag.get_id(label),
+                           bool(sent[1] == SentimentId2Tag.get_id(label))])
         output_path = self.config.dataset_path.replace("raw", "processed")
         json.dump({"data": output}, open(f"{output_path}/processed_data.json", "w", encoding="utf8"), indent=4,
                   ensure_ascii=False)

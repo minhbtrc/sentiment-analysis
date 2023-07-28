@@ -7,4 +7,6 @@ onnxruntime
 optimum
 scipy
 scikit-learn
+tensorboard
+mlflow
 git+https://github.com/huggingface/peft.git

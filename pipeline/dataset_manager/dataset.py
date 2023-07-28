@@ -1,29 +1,25 @@
 import os
 import json
-from itertools import chain
 
 import torch
 from collections import Counter
 import random
 from torch.utils.data import Dataset
 
+random.seed(2023)
+
 
 class SentimentDataset(Dataset):
-    def __init__(self, config, mode, tokenizer):
+    def __init__(self, config, mode, tokenizer, num_folds: int = None):
         super().__init__()
         self.config = config
+        self.num_folds = num_folds
         self.tokenizer = tokenizer
-        dataset = []
-        for ff in os.listdir(self.config.dataset_path):
-            if not os.path.isdir(f"{self.config.dataset_path}/{ff}"):
-                continue
-            for f in os.listdir(f"{self.config.dataset_path}/{ff}"):
-                if f.endswith(".json") and f.startswith(mode):
-                    dataset += self.load_dataset(path=f"{self.config.dataset_path}/{ff}/{f}")
-        random.shuffle(dataset)
-        self.data = dataset
-        if mode == "eval":
-            self.data = self.data[:5000]
+        self.original_data = self.load_dataset(mode=mode)
+        if num_folds is None:
+            self.data = self.original_data
+        else:
+            self.data = None
         print(Counter([e[1] for e in self.data]))
         print(f"Load {len(self.data)} examples for {mode} dataset")
         self.mapping_label = {
@@ -39,10 +35,29 @@ class SentimentDataset(Dataset):
     def generate_label(self, label_id):
         return self.mapping_label[label_id]
 
-    @staticmethod
-    def load_dataset(path: str):
-        data = json.load(open(path, "r", encoding="utf8"))
-        return data["data"]
+    def apply_fold(self, fold_id):
+        if fold_id >= self.num_folds:
+            raise f"`num_folds` must larger than `fold_id`"
+        total_len = len(self.original_data)
+        base_indices = total_len // self.num_folds
+        fold_eval = self.original_data[fold_id * base_indices:(fold_id + 1) * base_indices]
+        self.data = self.original_data[:fold_id * base_indices] + self.original_data[(fold_id + 1) * base_indices:]
+        eval_data = SentimentDataset(config=self.config, mode=None, tokenizer=self.tokenizer)
+        eval_data.data = fold_eval
+        return eval_data
+
+    def load_dataset(self, mode: str = None):
+        dataset = []
+        if mode is None:
+            return dataset
+        for ff in os.listdir(self.config.dataset_path):
+            if not os.path.isdir(f"{self.config.dataset_path}/{ff}"):
+                continue
+            for f in os.listdir(f"{self.config.dataset_path}/{ff}"):
+                if f.endswith(".json") and f.startswith(mode):
+                    dataset += json.load(open(f"{self.config.dataset_path}/{ff}/{f}"))["data"]
+        random.shuffle(dataset)
+        return dataset
 
     def new__getitem__(self, idx):
         data_item = self.data[idx]
