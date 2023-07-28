@@ -1,10 +1,11 @@
-import onnx
 from typing import Tuple, Any
 
-from common.config import SentimentConfig, ONNXOptions
+import onnx
+
 from common.base import BaseModel
-from pipeline.onnx_manager import ONNXRuntimeConverter, OptimumConverter
+from common.config import SentimentConfig, ONNXOptions
 from pipeline.model_manager.model import SentimentModel
+from pipeline.onnx_manager import ONNXRuntimeConverter, OptimumConverter
 
 CONVERTER = {
     "ONNXRUNTIME": ONNXRuntimeConverter,
@@ -13,10 +14,13 @@ CONVERTER = {
 
 
 class ONNXConverter(BaseModel):
-    def __init__(self, model: SentimentModel, mode: str, config: SentimentConfig = None):
+    def __init__(self, model: SentimentModel = None, mode: str = None, config: SentimentConfig = None):
         super(ONNXConverter, self).__init__(config=config)
         self.model = model
         self.onnx_func = CONVERTER.get(mode, ONNXRuntimeConverter)
+
+    def add_model(self, model: SentimentModel):
+        self.model = model
 
     @property
     def onnx_config(self):

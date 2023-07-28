@@ -23,18 +23,12 @@ class SentimentProcessor(BaseModel):
     def __init__(self, config: SentimentConfig = None, model_class: str = None):
         super(SentimentProcessor, self).__init__(config=config)
 
-        self.converter = None
-        self.model = SentimentModel(config=self.config, model_class=model_class)
+        self.converter = ONNXConverter(mode="ONNXRUNTIME", config=self.config)
+        self.model = SentimentModel(config=self.config)
+        self.model.model_class = model_class
         self.tokenizer = None
         self.metrics = None
         self.trainer = None
-        self.train_dataset = None
-        self.eval_dataset = None
-
-    def load_dataset(self):
-        train_dataset = SentimentDataset(config=self.config, mode="train", tokenizer=self.tokenizer)
-        eval_dataset = SentimentDataset(config=self.config, mode="eval", tokenizer=self.tokenizer)
-        return train_dataset, eval_dataset
 
     def collator(self, data):
         batch = {}
@@ -82,13 +76,13 @@ class SentimentProcessor(BaseModel):
         }
         self.model.init(use_lora=use_lora)
         self.tokenizer = AutoTokenizer.from_pretrained(self.config.pretrained_path)
-        self.converter = ONNXConverter(model=self.model, mode="ONNXRUNTIME", config=self.config)
-        self.train_dataset, self.eval_dataset = self.load_dataset()
-        self.init_trainer()
+        # self.init_trainer()
 
-    def init_trainer(self):
+    def init_trainer(self, output_dir: str = None, train_dataset=None, eval_dataset=None):
+        if output_dir is None:
+            output_dir = self.config.training_output_dir
         training_args = TrainingArguments(
-            output_dir=self.config.training_output_dir,
+            output_dir=output_dir,
             evaluation_strategy=IntervalStrategy.STEPS,
             save_strategy=IntervalStrategy.STEPS,
             per_device_train_batch_size=self.config.training_batch_size,
@@ -105,6 +99,7 @@ class SentimentProcessor(BaseModel):
             logging_dir=self.config.training_logging_dir,
             logging_strategy=IntervalStrategy.STEPS,
             logging_steps=self.config.training_logging_steps,
+            report_to=["tensorboard", "mlflow"],
             save_steps=self.config.training_save_steps,
             logging_first_step=False,
             optim=OptimizerNames.ADAMW_TORCH,
@@ -117,10 +112,10 @@ class SentimentProcessor(BaseModel):
         self.trainer = Trainer(
             model=self.model.model,
             args=training_args,
-            train_dataset=self.train_dataset,
-            eval_dataset=self.eval_dataset,
+            train_dataset=train_dataset,
+            eval_dataset=eval_dataset,
             tokenizer=self.tokenizer,
-            data_collator=self.dynamic_collator,
+            data_collator=self.collator,
             compute_metrics=self.compute_metrics
         )
 
@@ -148,36 +143,62 @@ class SentimentProcessor(BaseModel):
             break
         return best_checkpoint_until_now if best_checkpoint_until_now is not None else folder_checkpoint
 
-    def export_model_to_onnx(self, checkpoint_path: str = None, use_gpu: bool = False):
+    def export_model_to_onnx(self, checkpoint_path: str = None, use_gpu: bool = False, adapter_path: str = None):
         def _get_dummy_inputs(example_text):
             _dummy_inputs = self.tokenizer(example_text, return_tensors="pt", padding=True)
             _dummy_inputs = self.model.get_dummy_inputs(_dummy_inputs)
             return _dummy_inputs
 
-        dummy_inputs = _get_dummy_inputs(example_text="Tôi là một kỹ_sư AI")
         ckpt_path = checkpoint_path if checkpoint_path is not None else self.best_checkpoint
-        self.model.load_pretrained(ckpt_path)
+        self.load_trained_model(checkpoint_path=ckpt_path, adapter_path=adapter_path)
+        dummy_inputs = _get_dummy_inputs(example_text="Tôi là một kỹ_sư AI")
+        self.converter.add_model(model=self.model)
         self.converter.convert(option=ONNXOptions.quantized_optimized_ONNX, dummy_inputs=dummy_inputs, use_gpu=use_gpu)
 
         self.logger.info(f"EXPORT model to ONNX - DONE")
 
-    def train(self, export_last=False, export_mode: str = "last"):
-        self.trainer.train()
-        if export_last:
+    def k_fold_training(self, n_folds: int = 5, use_lora: bool = False):
+        train_dataset = SentimentDataset(config=self.config, mode="train", tokenizer=self.tokenizer, num_folds=n_folds)
+        for fold_id in range(n_folds):
+            self.logger.info(f"RUNNING FOLD {fold_id}....")
+            # Re-init model
+            if fold_id != 0:
+                self.model.init(use_lora=use_lora)
+            fold_output_dir = os.path.join(self.config.training_output_dir, f"fold{fold_id}")
+            eval_fold: SentimentDataset = train_dataset.apply_fold(fold_id=fold_id)
+            self.init_trainer(output_dir=fold_output_dir, train_dataset=train_dataset, eval_dataset=eval_fold)
+            print(f"TRAINING: {len(self.trainer.train_dataset)}, EVAL: {len(self.trainer.eval_dataset)}")
+            self.trainer.train()
+
+    def train(self, use_lora: bool = False, export_last=False, export_mode: str = "last", n_folds: int = None):
+        self.init(use_lora=use_lora)
+        if n_folds is not None:
+            self.k_fold_training(n_folds=n_folds, use_lora=use_lora)
+        else:
+            train_dataset = SentimentDataset(config=self.config, mode="train", tokenizer=self.tokenizer,
+                                             num_folds=n_folds)
+            eval_dataset = SentimentDataset(config=self.config, mode="eval", tokenizer=self.tokenizer,
+                                            num_folds=n_folds)
+            trainer.init(use_lora=use_lora, train_dataset=train_dataset, eval_dataset=eval_dataset)
+            self.trainer.train()
+        if export_last and not n_folds:
             # Default when convert to onnx, use_gpu is based on training_device
             self.export_model_to_onnx(export_mode, use_gpu=self.config.training_device)
 
     def eval(self):
-        self.logger.info(self.trainer.evaluate(eval_dataset=self.eval_dataset))
+        eval_dataset = SentimentDataset(config=self.config, mode="eval", tokenizer=self.tokenizer)
+        self.logger.info(self.trainer.evaluate(eval_dataset=eval_dataset))
 
-    def load_trained_model(self, checkpoint_path: str, adapter_path: str):
+    def load_trained_model(self, checkpoint_path: str = None, use_lora: bool = None, adapter_path: str = None):
         self.model.load_pretrained(checkpoint_path)
         self.tokenizer = AutoTokenizer.from_pretrained(checkpoint_path)
-        if self.model.use_lora:
+        self.model.use_lora = use_lora
+        if self.model.use_lora and adapter_path is not None:
             self.model.load_lora_adapter(adapter_path=adapter_path)
 
 
 if __name__ == "__main__":
-    trainer = SentimentProcessor(model_class="bloom")
-    trainer.init(use_lora=True)
-    trainer.train()
+    trainer = SentimentProcessor(model_class="roberta_linear")
+    trainer.train(use_lora=False, n_folds=5)
+    # trainer.export_model_to_onnx(checkpoint_path=trainer.config.pretrained_path,
+    #                              adapter_path=f"{trainer.config.training_output_dir}/checkpoint-8000")

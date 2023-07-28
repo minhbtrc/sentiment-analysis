@@ -16,6 +16,15 @@ class ONNXOptions:
         return [val for attr, val in cls.__dict__.items() if not attr.startswith("__") and isinstance(val, str)]
 
 
+class SingletonClass(object):
+    _instances = {}
+
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super(SingletonClass, cls).__call__(*args, **kwargs)
+        return cls._instances[cls]
+
+
 def setup_logging(logging_folder, log_name, log_exception_classes: List[AnyStr] = None, logging_level=logging.INFO):
     if log_exception_classes is None:
         log_exception_classes = []
@@ -33,7 +42,7 @@ def setup_logging(logging_folder, log_name, log_exception_classes: List[AnyStr] 
         logging.getLogger(exception_class).setLevel(logging.WARNING)
 
 
-class SentimentConfig:
+class SentimentConfig(SingletonClass):
     def __init__(
             self,
             pretrained_path: str = None,
@@ -98,9 +107,3 @@ class SentimentConfig:
         self.logging_folder = logging_folder if logging_folder is not None else os.getenv(LOG_FOLDER, "logs")
         self.log_file = log_file if log_file is not None else os.getenv(LOG_FILE, "app.log")
         setup_logging(logging_folder=self.logging_folder, log_name=self.log_file)
-        # class PipelineConfig(SingletonClass):
-        #     def __init__(self):
-        #         super().__init__()
-        #         self.segmentor = py_vncorenlp.VnCoreNLP(annotators=["wseg"], save_dir="./")
-        #
-        # self.config = PipelineConfig()

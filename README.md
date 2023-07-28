@@ -19,5 +19,9 @@
 - See: pipeline/onnx_converter.py
 
 ### How to run
+0. Note!!!
+- Pass `model_class` to init class SentimentProcessor.
+- Pass `n_folds` != None if you want to training with K-fold validation
+- If you use Bloom, you should pass `use_lora=True`
 1. Export environment variables: `while read LINE; do export "$LINE"; done < .env`
 2. Run training: `PRETRAINED_PATH=bigscience/bloom-560m CUDA_VISIBLE_DEVICES=1,2 python -m torch.distributed.launch --nproc_per_node 2 --master-port=30000 pipeline/trainer.py`
