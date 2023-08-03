@@ -179,7 +179,7 @@ class SentimentProcessor(BaseModel):
                                              num_folds=n_folds)
             eval_dataset = SentimentDataset(config=self.config, mode="eval", tokenizer=self.tokenizer,
                                             num_folds=n_folds)
-            trainer.init(use_lora=use_lora, train_dataset=train_dataset, eval_dataset=eval_dataset)
+            self.init_trainer(train_dataset=train_dataset, eval_dataset=eval_dataset)
             self.trainer.train()
         if export_last and not n_folds:
             # Default when convert to onnx, use_gpu is based on training_device
@@ -199,6 +199,6 @@ class SentimentProcessor(BaseModel):
 
 if __name__ == "__main__":
     trainer = SentimentProcessor(model_class="roberta_linear")
-    trainer.train(use_lora=False, n_folds=5)
+    trainer.train(n_folds=None)
     # trainer.export_model_to_onnx(checkpoint_path=trainer.config.pretrained_path,
     #                              adapter_path=f"{trainer.config.training_output_dir}/checkpoint-8000")

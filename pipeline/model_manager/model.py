@@ -1,7 +1,5 @@
-import torch
 from typing import Any, Dict
 
-from transformers import RobertaForSequenceClassification
 from peft import (
     LoraConfig,
     get_peft_model
