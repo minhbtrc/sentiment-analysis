@@ -6,6 +6,8 @@ from collections import Counter
 import random
 from torch.utils.data import Dataset
 
+from pipeline.dataset_manager.config import SentimentId2Tag
+
 random.seed(2023)
 
 
@@ -22,18 +24,14 @@ class SentimentDataset(Dataset):
             self.data = None
         print(Counter([e[1] for e in self.data]))
         print(f"Load {len(self.data)} examples for {mode} dataset")
-        self.mapping_label = {
-            0: "positive",
-            1: "negative",
-            2: "neutral"
-        }
 
     @staticmethod
     def generate_prompt(sentence):
         return f"""Classify the sentiment of the following Vietnamese sentence into one of three classes: neutral, negative, positive.\n### Input: {sentence}"""
 
-    def generate_label(self, label_id):
-        return self.mapping_label[label_id]
+    @staticmethod
+    def generate_label(label_id):
+        return SentimentId2Tag.get_tag(label_id)
 
     def apply_fold(self, fold_id):
         if fold_id >= self.num_folds:

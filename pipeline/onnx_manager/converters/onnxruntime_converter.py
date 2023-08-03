@@ -2,6 +2,7 @@ from pathlib import Path
 
 from onnxruntime.quantization import quantize_dynamic, QuantType
 from onnxruntime.transformers.optimizer import optimize_model
+from transformers.convert_graph_to_onnx import quantize
 
 from pipeline.onnx_manager.converters.base_converter import BaseConverter
 
@@ -36,10 +37,10 @@ class ONNXRuntimeConverter(BaseConverter):
         return new_onnx_path
 
     def apply_quantized(self, saved_path: str):
-        # quantized_model_path = quantize(Path(saved_path))
-        saved_path = Path(saved_path)
-        quantized_model_path = Path(saved_path.replace(".onnx", "_quantized.onnx"))
-        quantize_dynamic(saved_path, quantized_model_path, weight_type=QuantType.QInt8, optimize_model=True)
+        quantized_model_path = quantize(Path(saved_path))
+        # saved_path = Path(saved_path)
+        # quantized_model_path = Path(saved_path.replace(".onnx", "_quantized.onnx"))
+        # quantize_dynamic(saved_path, quantized_model_path, weight_type=QuantType.QInt8, optimize_model=True)
         self.logger.info(f"EXPORT model to ONNX + Quantized - DONE at {quantized_model_path}")
         return quantized_model_path
 
